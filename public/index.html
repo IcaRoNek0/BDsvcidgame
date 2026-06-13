@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>百度街景车 ID 辨认游戏</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.css">
+</head>
+<body>
+  <!-- 顶部导航栏 -->
+  <nav class="nav-bar">
+    <div class="nav-inner">
+      <div class="nav-title">🚗 ID 辨认</div>
+      <div class="nav-links">
+        <button class="nav-btn active" data-page="game">游戏</button>
+        <button class="nav-btn" data-page="bank">题库</button>
+        <button class="nav-btn" data-page="settings">设置</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 主容器 -->
+  <main class="container">
+    <!-- ==================== 游戏页面 ==================== -->
+    <section id="page-game" class="page active">
+      <!-- 游戏未开始 -->
+      <div id="game-start" class="card">
+        <h2>百度街景车 ID 辨认</h2>
+        <p class="desc">观察街景图片，猜测该景对应的 <code>panoid</code> 最后两位字符。</p>
+        <div class="bank-selector">
+          <label for="bank-select">选择题库：</label>
+          <select id="bank-select"></select>
+        </div>
+        <button id="btn-start" class="btn btn-primary">开始游戏</button>
+      </div>
+
+      <!-- 游戏进行中 -->
+      <div id="game-playing" class="card hidden">
+        <div class="game-header">
+          <span id="game-progress">0 / 0</span>
+          <span id="game-score">正确：0</span>
+          <button id="btn-end" class="btn btn-small btn-outline">结束游戏</button>
+        </div>
+        <div class="image-container">
+          <img id="streetview-img" src="" alt="街景图片">
+          <div class="image-loading" id="img-loading">加载中...</div>
+        </div>
+        <div class="answer-area">
+          <label for="answer-input">后两位字符：</label>
+          <div class="answer-row">
+            <input type="text" id="answer-input" maxlength="2" placeholder="例: 2R" autocomplete="off">
+            <button id="btn-submit" class="btn btn-primary">提交</button>
+          </div>
+          <div id="answer-feedback" class="feedback hidden"></div>
+        </div>
+      </div>
+
+      <!-- 游戏结束界面 -->
+      <div id="game-end" class="card hidden">
+        <h2>游戏结束</h2>
+        <p id="result-text">正确率：0%</p>
+        <div class="result-detail" id="result-detail"></div>
+        <button id="btn-back-start" class="btn btn-primary">返回首页</button>
+      </div>
+    </section>
+
+    <!-- ==================== 题库管理页面 ==================== -->
+    <section id="page-bank" class="page">
+      <div class="card">
+        <div class="bank-header">
+          <h2>题库管理</h2>
+          <div class="bank-actions">
+            <button id="btn-create-bank" class="btn btn-primary btn-small">新建题库</button>
+          </div>
+        </div>
+        <div id="bank-list" class="bank-list"></div>
+      </div>
+    </section>
+
+    <!-- ==================== 设置页面 ==================== -->
+    <section id="page-settings" class="page">
+      <div class="card">
+        <h2>游戏设置</h2>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">答案大小写敏感</span>
+            <span class="setting-desc">开启后区分大小写，默认不区分</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="setting-case-sensitive">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info">
+            <span class="setting-label">自定义背景图</span>
+            <span class="setting-desc">上传本地图片作为页面背景</span>
+          </div>
+          <div class="setting-control">
+            <input type="file" id="bg-upload" accept="image/*">
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-info"></div>
+          <button id="btn-reset-bg" class="btn btn-small btn-outline">恢复默认背景</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 题库编辑弹窗 -->
+  <div id="bank-editor-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="bank-editor-title">编辑题库</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="editor-name-row">
+          <label>题库名称：</label>
+          <input type="text" id="editor-bank-name" maxlength="50">
+          <button id="btn-rename-bank" class="btn btn-small btn-outline">重命名</button>
+        </div>
+        <div class="editor-import-row">
+          <label>批量导入（每行一个 panoid）：</label>
+          <textarea id="editor-import-text" rows="4" placeholder="每行一个 panoid..."></textarea>
+          <button id="btn-import-panoids" class="btn btn-small btn-primary">导入</button>
+        </div>
+        <div class="editor-list-header">
+          <span>panoid 列表（<span id="editor-panoid-count">0</span> 个）</span>
+        </div>
+        <div id="editor-panoid-list" class="editor-panoid-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
