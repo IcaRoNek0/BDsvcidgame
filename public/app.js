@@ -15,8 +15,6 @@
   const DEFAULT_BANK_NAME = '三代白低相机';
   const SETTINGS_KEY = 'streetview_settings';
   const LAST_BANK_KEY = 'streetview_last_bank';
-  const IMG_TIMEOUT = 20000;
-  const IMG_RETRIES = 5;
 
   // 默认 panoid（从服务器 default.txt 加载）
   let DEFAULT_PANOIDS = [];
@@ -232,35 +230,57 @@
   }
 
   // =============================================
-  // 图片代理模块
+  // 前端直接加载模块（直接从百度 API 获取 metadata 和图片）
   // =============================================
-  async function fetchStreetViewImage(panoid, fallbackHeading = 0) {
-    const url = `/api/streetview?panoid=${encodeURIComponent(panoid)}&fallback_heading=${fallbackHeading}`;
 
-    let lastErr = null;
-    for (let attempt = 1; attempt <= IMG_RETRIES; attempt++) {
+  // 百度 API 基础 URL
+  const BAIDU_META_URL = 'https://mapsv0.bdimg.com/?qt=sdata&sid=';
+  const BAIDU_IMG_URL = 'https://mapsv0.bdimg.com/?qt=pr3d&fovy=120&quality=100';
+
+  // 获取真实 Heading（元数据）
+  async function fetchHeading(panoid, fallbackHeading = 0) {
+    let heading = fallbackHeading;
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), IMG_TIMEOUT);
-
-        const response = await fetch(url, { signal: controller.signal });
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const metaRes = await fetch(`${BAIDU_META_URL}${panoid}`, {
+          signal: controller.signal,
+          mode: 'cors'
+        });
         clearTimeout(timeoutId);
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const blob = await response.blob();
-        if (blob.size === 0) throw new Error('Empty image');
-
-        return blob;
-      } catch (err) {
-        lastErr = err;
-        if (attempt < IMG_RETRIES) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1) + Math.random() * 500, 10000);
-          await new Promise(resolve => setTimeout(resolve, delay));
+        if (metaRes.ok) {
+          const metaData = await metaRes.json();
+          const content = metaData && metaData.content;
+          if (content && content.length > 0 && content[0].Heading !== undefined) {
+            heading = content[0].Heading;
+            break;
+          }
         }
+      } catch (e) {
+        // 静默重试
+      }
+      if (attempt < 4) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt), 10000)));
       }
     }
-    throw lastErr;
+    return heading;
+  }
+
+  // 构建街景图片 URL
+  function buildStreetViewUrl(panoid, heading) {
+    return `${BAIDU_IMG_URL}&panoid=${panoid}&heading=${heading}&pitch=-90&width=1024&height=1024`;
+  }
+
+  // 预加载图片到浏览器缓存
+  function preloadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(url);
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = url;
+    });
   }
 
   // =============================================
@@ -362,12 +382,6 @@
 
   // 下一题
   async function nextQuestion() {
-    // 释放上一题的图片内存
-    if (gameState.currentImgUrl) {
-      URL.revokeObjectURL(gameState.currentImgUrl);
-      gameState.currentImgUrl = null;
-    }
-
     gameState.currentIndex++;
 
     // 检查是否所有题目都答完了
@@ -403,7 +417,7 @@
       // 重新挂载 Viewer.js（图片 src 变了）
       initImageViewer();
 
-      // 当前题加载完成后，后台预缓存下一题
+      // 当前题加载完成后，后台预缓存下两道题
       preloadNextImage();
     } catch (err) {
       dom.imgLoading.textContent = '图片加载失败，请重试或跳过';
@@ -412,56 +426,50 @@
   }
 
   // =============================================
-  // 预缓存模块（支持多题预加载）
+  // 预缓存模块（使用浏览器原生图片缓存）
   // =============================================
   const CACHE_SIZE = 2; // 预缓存下 N 道题
 
-  // 后台预缓存队列
-  const preloadQueue = [];
+  // 预缓存 Map：panoid -> 图片 URL（已触发浏览器加载）
+  const preloadCache = new Map();
 
   // 启动预缓存
   async function preloadNextImage() {
-    preloadQueue.length = 0;
     for (let i = 1; i <= CACHE_SIZE; i++) {
       const nextIndex = gameState.currentIndex + i;
       if (nextIndex >= gameState.queue.length) break;
       const nextPanoid = gameState.queue[nextIndex];
-      preloadQueue.push(preloadSingleImage(nextPanoid));
+      // 不等待，后台静默预加载
+      preloadSingleImage(nextPanoid).catch(() => {});
     }
-    // 等待所有预缓存完成（静默处理失败）
-    await Promise.allSettled(preloadQueue);
   }
 
-  // 预缓存单张图片
-  const preloadCache = new Map(); // panoid -> blobUrl
-
+  // 预缓存单张图片：获取 heading → 构造 URL → 触发浏览器加载
   async function preloadSingleImage(panoid) {
     if (preloadCache.has(panoid)) return;
     try {
-      const blob = await fetchStreetViewImage(panoid);
-      const url = URL.createObjectURL(blob);
+      const heading = await fetchHeading(panoid);
+      const url = buildStreetViewUrl(panoid, heading);
+      await preloadImage(url);
       preloadCache.set(panoid, url);
     } catch {
       // 预缓存失败静默处理
     }
   }
 
-  // 从预缓存中取出图片，如果未命中则重新请求
+  // 获取当前题图片：先取缓存，未命中则实时加载
   async function getCachedOrFetch(panoid) {
     if (preloadCache.has(panoid)) {
       const url = preloadCache.get(panoid);
       preloadCache.delete(panoid);
       return url;
     }
-    const blob = await fetchStreetViewImage(panoid);
-    return URL.createObjectURL(blob);
+    const heading = await fetchHeading(panoid);
+    return buildStreetViewUrl(panoid, heading);
   }
 
-  // 清理预缓存（释放所有 blob URL）
+  // 清理预缓存
   function clearPreloadCache() {
-    for (const [panoid, url] of preloadCache) {
-      URL.revokeObjectURL(url);
-    }
     preloadCache.clear();
   }
 
@@ -532,11 +540,6 @@
     if (!gameState.isPlaying) return;
     gameState.isPlaying = false;
 
-    // 释放当前图片
-    if (gameState.currentImgUrl) {
-      URL.revokeObjectURL(gameState.currentImgUrl);
-      gameState.currentImgUrl = null;
-    }
     clearPreloadCache();
 
     showEndScreen();
@@ -546,11 +549,6 @@
   function showEndScreen() {
     gameState.isPlaying = false;
 
-    // 释放最后一题的图片和缓存
-    if (gameState.currentImgUrl) {
-      URL.revokeObjectURL(gameState.currentImgUrl);
-      gameState.currentImgUrl = null;
-    }
     clearPreloadCache();
 
     dom.gamePlaying.classList.add('hidden');
